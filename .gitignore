@@ -1,0 +1,16 @@
+# 1. SEGURANÇA MÁXIMA (Ignorar chaves de API)
+.env
+
+# 2. DADOS LOCAIS (Ignorar os chats salvos para não lotar o GitHub)
+src/conversas_salvas/*.json
+
+# 3. AMBIENTES VIRTUAIS (Se você estiver usando um)
+venv/
+.venv/
+env/
+
+# 4. ARQUIVOS TEMPORÁRIOS DO PYTHON E STREAMLIT
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
