@@ -10,7 +10,7 @@ from PIL import Image
 # Carrega as variáveis de ambiente
 load_dotenv(dotenv_path="../.env") 
 
-# ---> NOVO: SISTEMA DE ROTAÇÃO DE CHAVES <---
+# ---> SISTEMA DE ROTAÇÃO DE CHAVES <---
 CHAVES = [
     os.environ.get("GEMINI_API_KEY_1"), # Chave Principal
     os.environ.get("GEMINI_API_KEY_2"), # Chave Reserva
@@ -23,7 +23,7 @@ if "indice_chave" not in st.session_state:
 instrucao_sistema = """Você é um professor especialista estritamente em História e Geografia. 
 Suas respostas devem ser curtas, didáticas e adequadas para estudantes."""
 
-# Configura o Gemini com a chave atual
+# Configura o Gemini com a chave
 if CHAVES:
     genai.configure(api_key=CHAVES[st.session_state.indice_chave])
 else:
@@ -176,7 +176,7 @@ def salvar_conversa_atual():
         with open(caminho, "w", encoding="utf-8") as f:
             json.dump(historico_formatado, f, ensure_ascii=False, indent=4)
 
-# ---> NOVO: FUNÇÃO DE ENVIO COM PROTEÇÃO DE QUOTA (CORRIGIDA) <---
+# ---> FUNÇÃO DE ENVIO COM PROTEÇÃO DE QUOTA (CORRIGIDA) <---
 def enviar_mensagem_com_protecao(mensagem_texto):
     try:
         # Tenta enviar com a chave atual
