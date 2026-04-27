@@ -9,7 +9,25 @@ from PIL import Image
 
 # Carrega as variáveis de ambiente
 load_dotenv(dotenv_path="../.env") 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+
+# ---> NOVO: SISTEMA DE ROTAÇÃO DE CHAVES <---
+CHAVES = [
+    os.environ.get("GEMINI_API_KEY_1"), # Chave Principal
+    os.environ.get("GEMINI_API_KEY_2"), # Chave Reserva
+    os.environ.get("GEMINI_API_KEY_3")  # Chave Reserva 2
+]
+
+if "indice_chave" not in st.session_state:
+    st.session_state.indice_chave = 0
+
+instrucao_sistema = """Você é um professor especialista estritamente em História e Geografia. 
+Suas respostas devem ser curtas, didáticas e adequadas para estudantes."""
+
+# Configura o Gemini com a chave atual
+if CHAVES:
+    genai.configure(api_key=CHAVES[st.session_state.indice_chave])
+else:
+    st.error("Nenhuma chave de API encontrada no arquivo .env!")
 
 PASTA_CHATS = "conversas_salvas"
 if not os.path.exists(PASTA_CHATS):
@@ -18,15 +36,15 @@ if not os.path.exists(PASTA_CHATS):
 # 1. Configuração da página 
 st.set_page_config(page_title="Alexandri.ia", page_icon="🏛️", layout="centered")
 
-# --- CSS ORIGINAL (COM ADIÇÃO DE FONTE MAIOR NO CHAT) ---
+# --- CSS ORIGINAL ---
 st.markdown("""
     <style>
-    /* ---> NOVO: Aumentar a fonte das mensagens do chat <--- */
+    /* Aumentar a fonte das mensagens do chat */
     [data-testid="stChatMessageContent"] p, 
     [data-testid="stChatMessageContent"] li, 
     [data-testid="stChatMessageContent"] span {
-        font-size: 20px !important; /* Tamanho da letra */
-        line-height: 1.6 !important; /* Espaçamento entre as linhas */
+        font-size: 18px !important; 
+        line-height: 1.6 !important; 
     }
 
     /* Estilo do Botão Primário (Novo Chat) */
@@ -37,20 +55,17 @@ st.markdown("""
         border-radius: 8px !important;
         font-weight: 600 !important;
         transition: 0.3s !important;
-        font-size: 20px !important;
     }
     button[kind="primary"]:hover {
         background-color: #1565C0 !important;
         border-color: #1565C0 !important;
         color: white !important;
         box-shadow: 0 4px 8px rgba(30, 136, 229, 0.4) !important;
-        font-size: 20px !important;
     }
     
     /* Arredondamento dos botões de histórico */
     button[kind="secondary"] {
         border-radius: 8px !important;
-        font-size: 20px !important;
     }
 
     /* Tamanho ideal para os avatares no chat */
@@ -60,9 +75,6 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
-instrucao_sistema = """Você é um professor especialista estritamente em História e Geografia. 
-Suas respostas devem ser curtas, didáticas e adequadas para estudantes."""
 
 modelo = genai.GenerativeModel(
     model_name="gemini-2.5-flash",
@@ -88,7 +100,6 @@ texto_base = ""
 
 # --- BARRA LATERAL ---
 with st.sidebar:
-    
     try:
         st.image("assets/logo.png", use_container_width=True)
     except FileNotFoundError:
@@ -165,11 +176,54 @@ def salvar_conversa_atual():
         with open(caminho, "w", encoding="utf-8") as f:
             json.dump(historico_formatado, f, ensure_ascii=False, indent=4)
 
+# ---> NOVO: FUNÇÃO DE ENVIO COM PROTEÇÃO DE QUOTA (CORRIGIDA) <---
+def enviar_mensagem_com_protecao(mensagem_texto):
+    try:
+        # Tenta enviar com a chave atual
+        resposta = st.session_state.sessao_chat.send_message(mensagem_texto)
+        return resposta
+    except Exception as e:
+        erro_str = str(e).lower()
+        # Se o erro for de Cota (429 / ResourceExhausted)
+        if "429" in erro_str or "quota" in erro_str or "exhausted" in erro_str:
+            if st.session_state.indice_chave < len(CHAVES) - 1:
+                # Troca para a próxima chave
+                st.session_state.indice_chave += 1
+                nova_chave = CHAVES[st.session_state.indice_chave]
+                
+                # 1. Atualiza a configuração do Google
+                genai.configure(api_key=nova_chave)
+                
+                # 2. O SEGREDO: Recria o modelo para assumir a nova chave
+                novo_modelo = genai.GenerativeModel(
+                    model_name="gemini-2.5-flash",
+                    system_instruction=instrucao_sistema
+                )
+                
+                # 3. Reinicia o chat, mas clona o histórico para o robô não perder a memória
+                historico_atual = st.session_state.sessao_chat.history
+                st.session_state.sessao_chat = novo_modelo.start_chat(history=historico_atual)
+                
+                # Avisa na tela rapidinho que trocou
+                st.toast("🔄 Cota atingida. Conectando à chave reserva...", icon="⚠️")
+                
+                # 4. Tenta enviar de novo usando a nova sessão conectada
+                return st.session_state.sessao_chat.send_message(mensagem_texto)
+            else:
+                st.error("🚨 Todas as chaves de API atingiram o limite de uso diário/por minuto.")
+                st.stop()
+        else:
+            # Se for outro tipo de erro de internet/código
+            st.error(f"Erro inesperado: {e}")
+            st.stop()
+
+# Executa o envio do Quiz usando a nova função protegida
 if iniciar_quiz:
     comando_quiz = "Mande uma pergunta de múltipla escolha de História ou Geografia para testar meus conhecimentos."
     with st.spinner("Preparando a pergunta..."):
-        resposta = st.session_state.sessao_chat.send_message(comando_quiz)
-        salvar_conversa_atual()
+        resposta = enviar_mensagem_com_protecao(comando_quiz)
+        if resposta:
+            salvar_conversa_atual()
 
 for mensagem in st.session_state.sessao_chat.history:
     if "Mande uma pergunta de múltipla escolha" in mensagem.parts[0].text and mensagem.role == "user":
@@ -189,11 +243,10 @@ if prompt := st.chat_input("Digite sua dúvida (ou 'sair' para encerrar)"):
         st.markdown(prompt)
 
     with st.chat_message("assistant", avatar=avatar_bot):
-        try:
-            with st.spinner("Consultando os pergaminhos..."):
-                prompt_enviado = f"Considere este texto como base:\n{texto_base}\n\nAgora responda: {prompt}" if texto_base else prompt
-                resposta = st.session_state.sessao_chat.send_message(prompt_enviado)
-            st.markdown(resposta.text)
-            salvar_conversa_atual()
-        except Exception as e:
-            st.error(f"Erro: {e}")
+        with st.spinner("Consultando os pergaminhos..."):
+            prompt_enviado = f"Considere este texto como base:\n{texto_base}\n\nAgora responda: {prompt}" if texto_base else prompt
+            # Usa a nova função protegida
+            resposta = enviar_mensagem_com_protecao(prompt_enviado)
+            if resposta:
+                st.markdown(resposta.text)
+                salvar_conversa_atual()
